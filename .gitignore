@@ -1,0 +1,18 @@
+# R
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+
+# Quarto
+/.quarto/
+*_cache/
+*_freeze/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Note: the *_files/ folder is intentionally NOT ignored.
+# It holds the rendered figures that GitHub needs to display the tutorial.

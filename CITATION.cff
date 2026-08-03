@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use this tutorial, please cite it as below."
+title: "How to Choose Your Statistical Test Before You Run It: A Decision-Based Guide to Statistical Analysis in Aquatic Sciences for Young Scientists"
+abstract: >-
+  A reproducible R tutorial that walks through the full cycle of environmental
+  data analysis in aquatic sciences: formulating a structured research question,
+  stating an a priori hypothesis, diagnosing and cleaning a messy dataset, and
+  choosing a statistical test from the study design rather than from the results.
+  Companion material to an article submitted to Limnology and Oceanography Bulletin.
+type: software
+authors:
+  - family-names: "Rodrigues da Conceicao"
+    given-names: "Juline"
+  - family-names: "Zorzal-Almeida"
+    given-names: "Stefano"
+keywords:
+  - reproducible research
+  - statistics
+  - aquatic sciences
+  - data cleaning
+  - R
+  - confirmatory analysis
+license: MIT
+repository-code: "https://github.com/julinerodrigues/before-you-run-the-test"

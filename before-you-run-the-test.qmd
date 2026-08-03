@@ -1,0 +1,670 @@
+---
+title: "How to Choose Your Statistical Test Before You Run It: A Decision-Based Guide to Statistical Analysis in Aquatic Sciences for Young Scientists"
+author:
+  - Juline Rodrigues da Conceicao
+  - Stefano Zorzal-Almeida
+format:
+  gfm:
+    toc: true
+    toc-depth: 3
+execute:
+  warning: false
+  message: false
+---
+
+### Introduction
+
+Welcome! This tutorial guides you through the complete cycle of environmental data analysis in aquatic sciences, from formulating a structured research question to cleaning raw data and choosing the statistical test that your design demands.
+
+In ecology, the data we collect from the field and laboratory is rarely ready for analysis. To simulate this reality, we will start with an intentionally messy dataset that combines sensor failures, mixed data types, and formatting inconsistencies. This simulated data frame will serve as your practical foundation for mastering data manipulation in R, teaching you how to transform chaotic empirical observations into structured, model-ready data.
+
+### 1. The Research Question
+
+Every solid data analysis pipeline starts with a well-defined research question. Following the framework proposed by Moon et al. (2021), a robust question must explicitly define three core elements: the object of study, the spatial and temporal scale, and the type of knowledge being pursued.
+
+For this tutorial, our guiding research question is:
+**"What are the high-frequency temporal patterns of phytoplankton diversity in a coastal ecosystem, and how do these patterns correlate with sub-weekly gradients of physical-chemical parameters and nutrient availability?"**
+
+Let's break down its anatomy:
+
+*   **Object of Study:** Phytoplankton diversity (specifically, the categories identified via microscopy).
+*   **Scale:** High-frequency/sub-weekly (temporal, measured at 12-hour intervals) within a localized coastal ecosystem (spatial).
+*   **Type of Knowledge:** Pattern-focused. We are looking for spatial and temporal gradients and correlations between abiotic environmental data (temperature, pH, nutrients) and biological responses, rather than testing isolated physiological mechanisms in a lab.
+
+By defining this upfront, we establish our target variables. It also reminds us why data cleaning is so important: if we simply delete every row with a sensor error, we might lose critical biological data that took hours to process in the lab.
+
+---
+
+### 2. Sampling Design
+
+To answer our research question, we established a hypothetical sampling design that combines automated monitoring with discrete manual sampling. This mixed-method approach is standard in modern aquatic sciences, but it also creates the exact messy data scenarios we will solve.
+
+Our sampling strategy consists of two main fronts, measured at 12-hour intervals:
+
+*   **High-Frequency Sensors (Physical-Chemical):** In-situ multiparameter sondes record Temperature and pH. While sensors are excellent for capturing rapid environmental shifts, they operate in harsh conditions. As we will see in our dataset, they are prone to battery failures (missing data) and calibration drifts (impossible values).
+*   **Discrete Sampling (Biological & Chemical):** Water samples are collected manually for laboratory analysis.
+    *   **Nutrients:** Processed for Nitrate and Silicate concentrations. Data entry from lab notebooks often introduces mixed data types (e.g., numbers mixed with text or units).
+    *   **Biological Data:** Phytoplankton diversity is assessed and categorized (e.g., through microscopy to identify functional groups). Because this relies on human taxonomic expertise and manual data entry, the resulting categorical variables often suffer from typos and inconsistent formatting.
+
+Keep this design in mind. It feels like a logistical detail now, but in Section 8 it will decide which statistical test we are allowed to use.
+
+---
+
+### 3. Analytical Posture and *A Priori* Hypothesis
+
+Before we write a single line of code to clean or visualize our data, we must explicitly define our analytical posture. This distinction deserves particular attention because it is frequently misunderstood in data science tutorials.
+
+As Schwab and Held (2020) emphasize, a study designed around a confirmatory hypothesis demands a fundamentally different analytical posture than one built on data exploration. In a confirmatory study, the hypothesis is written down before the data are examined, a small number of pre-specified tests are run, and the p-values mean what they claim to mean. In an exploratory study, patterns are noticed first and questions are formed afterwards; this is entirely legitimate science, but the resulting p-values are far weaker evidence than they appear. Neither posture is wrong. Performing the second while reporting the first is.
+
+In this tutorial, we are adopting a **confirmatory analysis** approach. This means our hypothesis is stated *before* the data are examined, and our data manipulation and statistical tools are chosen to evaluate a specific ecological prediction.
+
+#### 3.1 The Study Site: The Aura Estuary
+
+To ground our hypothesis, our simulated data represents high-frequency monitoring at the **Aura Estuary**, a fictitious shallow, subtropical coastal system. The estuary receives significant riverine discharge from a watershed dominated by agricultural land use. Because of this, the system is highly susceptible to episodic nutrient runoff, making it an ideal natural laboratory to study the impacts of short-term eutrophication pulses.
+
+#### 3.2 The Confirmatory Hypothesis
+
+A hypothesis is not a guess. It is a theoretically justified prediction, grounded in existing knowledge, that states an expected relationship between variables. In its simplest form it has three elements: an **independent variable** (the explanatory factor, or presumed driver), a **dependent variable** (the outcome expected to respond to it), and the **predicted relationship** between them, including its direction.
+
+**Hypothesis:** Short-term increases in nitrate availability will reduce phytoplankton diversity in the Aura Estuary.
+
+Just as we did with the research question, let's break down its anatomy:
+
+*   **Independent variable (driver):** Nitrate concentration, measured by discrete sampling at 12-hour intervals, and used here as a proxy for episodic nutrient runoff.
+*   **Dependent variable (response):** Phytoplankton diversity, recorded as an ordered category (Low, Medium, High) obtained through microscopy.
+*   **Predicted relationship:** A decrease. As nitrate rises, diversity is expected to fall monotonically.
+
+**Ecological Rationale:** Nutrient influxes act as a proxy for acute eutrophication events. In coastal systems like the Aura Estuary, sudden nutrient spikes disrupt the ecological equilibrium and disproportionately favor a few opportunistic, fast-growing taxa, leading to rapid bloom formation. This dominance drives the competitive exclusion of other species, reducing the overall diversity of the community. The prediction therefore does not come from the data we are about to simulate; it comes from a mechanism described in the literature, which is what makes it testable rather than merely plausible.
+
+> **A note on silicate.** Our sampling design also measures silicate, and it will be cleaned along with the rest of the dataset in Sections 5 and 6. It is not part of the confirmatory hypothesis, however, because we have no *a priori* directional prediction for it. Anything we might notice about silicate later belongs to the exploratory, hypothesis-generating side of the study, and must be reported as such.
+
+Notice that each element of this hypothesis constrains what comes next. The independent and dependent variables tell us which columns of the messy dataset must be usable, and therefore what our cleaning in Sections 5 and 6 has to achieve. Their measurement types, one continuous and one ordinal, will narrow the set of valid tests in Section 8. And the predicted direction, a *decrease* rather than simply "a difference", is what will later entitle us to a one-sided test. Because we committed to all three here, before seeing a single value, the test in Section 9 follows from the design rather than from the results.
+
+---
+
+### 4. Creating our "messy" data frame
+
+Now that we have established our theoretical framework and sampling design, it is time to get our hands dirty. In a perfect world, our field sensors would work continuously and our lab notebooks would be flawlessly transcribed. In reality, empirical environmental data is often a chaotic mix of formats, missing values, and human errors.
+
+To reflect this reality, we will use base R to simulate a raw dataset. We will intentionally inject common real-world problems that aquatic scientists face constantly:
+
+*   **Time series gaps:** Simulating a multiparameter sonde that temporarily lost power.
+*   **Sensor errors:** Injecting impossible ecological values (like a pH of 14.8) and standard numerical error codes (like `-999.0`).
+*   **Mixed data types:** Replicating lab data entry issues where numbers, text, and commas are mixed in the nutrient columns.
+*   **Categorical inconsistencies:** Simulating human typing errors and varied capitalization in our phytoplankton diversity categories.
+
+Let's run the code below to generate our starting dataset:
+
+```{r}
+# Setting a seed for reproducibility in your tutorial
+set.seed(42)
+
+# 1. Dates with gaps (simulating a sensor recording failure)
+original_dates <- seq(from = as.POSIXct("2026-03-01 08:00"), 
+                      to = as.POSIXct("2026-03-05 18:00"), 
+                      by = "12 hours")
+messy_dates <- original_dates[-c(3, 7)] # Sensor turned off and lost two readings
+n <- length(messy_dates) # n will be exactly 7
+
+# 2. Generating the Messy Data Frame
+df_messy <- data.frame(
+  sample_id = 1:n,
+  date_time = as.character(messy_dates),
+  
+  # Sensor data (Temperature and pH)
+  sensor_temp_c = round(rnorm(n, mean = 24.5, sd = 1.2), 2),
+  sensor_ph = round(rnorm(n, mean = 8.1, sd = 0.3), 2),
+  
+  # Lab data (Nutrients): a runoff pulse peaking mid-week
+  nitrate_mg_l = c(0.12, 0.18, 0.95, 1.80, 2.35, 0.60, 0.22),
+  silicate_umol_l = c(12.4, 15.1, 33.8, 41.6, "45,2", "N/A", "38 umol/L"), # Mixed types
+  
+  # Ecology data (Diversity categories): three classes, typed five ways
+  phyto_diversity = c("High", "HIGH", "Medium", "lw", "Low", NA, "high"),
+  
+  stringsAsFactors = FALSE
+)
+
+# 3. Injecting the "Chaos" (Real-world errors)
+
+# Dates in inconsistent formats
+df_messy$date_time[2] <- "01/03/2026 20:00"
+
+# Severe sensor calibration/reading failures
+df_messy$sensor_temp_c[4] <- -999.00 # Classic numerical error code
+df_messy$sensor_temp_c[6] <- NA 
+df_messy$sensor_ph[7] <- 14.8 # Ecologically impossible pH value
+
+# Duplicates (someone accidentally copy-pasted a row)
+df_messy <- rbind(df_messy, df_messy[5, ])
+rownames(df_messy) <- NULL # Resetting the index to hide the duplicate
+
+# Visualizing the disaster
+head(df_messy, 10)
+```
+
+> **A note on our simulation.** Unlike the sensor readings, the nitrate and diversity columns are written by hand rather than drawn at random. This guarantees that the eutrophication signal we hypothesized is genuinely present in the data, so that you can see what a detected pattern actually looks like. Real field data are rarely this cooperative, and Section 10 deals with what to do when they are not.
+
+### 5. Layer 2: Understanding Your Data Structure
+
+With our hypothesis established and our raw data loaded, it is tempting to jump straight into statistical modeling. But as highlighted by best practices in aquatic sciences, a prior step is non-negotiable: understanding your data structure.
+
+What lives in the rows and columns? Are missing values random, or do they indicate a sensor failure? Before any analysis begins, we must know what we are actually holding.
+
+#### 5.1. Data Provenance and Sampling Design
+
+Even though our Aura Estuary dataset is simulated for this tutorial, real-world data provenance carries ethical and technical dimensions. Datasets from long-term monitoring or open repositories often come with expectations about authorship and data use. Settling these early avoids downstream conflicts.
+
+Technically, you must also understand the design that generated the data. Our dataset is an **observational, temporally repeated** sampling design. We must account for this structure because treating non-independent time-series observations as simple independent rows can lead to misleading statistical inference. We will return to this in Section 8.3, where it becomes a concrete constraint rather than a warning.
+
+#### 5.2. Exploratory Data Analysis (EDA): The Diagnostic Step
+
+At this point a reasonable objection arises. In Section 3 we committed to a confirmatory posture, with the hypothesis written before the data were examined. Are we not about to violate it by opening the dataset and looking around?
+
+We are not, and the reason is that the word "exploration" covers two different activities:
+
+*   **Diagnostic exploration.** Examining distributions, detecting outliers, checking variable types, and mapping missing values. Its purpose is to find out whether the data are fit for the analysis we already planned. This step is **mandatory regardless of posture**: every confirmatory study needs it, because a test run on a character column or on a `-999.0` error code produces a number that means nothing.
+*   **Analytical exploration.** Interrogating the data to *find* patterns and generate hypotheses without prior expectations. This defines the exploratory mode of inquiry, and it is legitimate science, but it is not what we are doing here.
+
+Everything in this section belongs to the first category. We are not looking for the eutrophication signal, nor deciding what to test. That decision was made in Section 3.2 and will be formalized in Section 8. We are only asking whether the columns our hypothesis names are in a usable state.
+
+> **What if you notice something anyway?** You will, eventually. Diagnostic EDA routinely turns up patterns nobody predicted, and such findings are often worth reporting — in this very paper, not only in some future one. What they require is an honest label. Report the finding in a separate, clearly marked exploratory section; state that the pattern was noticed during data inspection rather than predicted beforehand; and treat any p-value attached to it as indicative rather than confirmatory, since the hypothesis and the data are no longer independent. Confirming it will take a new dataset, but describing it belongs here. What is never acceptable is presenting such a pattern as if it had been predicted from the outset. That is HARKing (Hypothesizing After Results are Known), and it is the single error this entire tutorial is designed to help you avoid. Noticing is not the problem. Concealing when you noticed is.
+
+Understanding the structure does not require sophisticated modeling; a few basic commands in R will reveal the anatomy of our dataset and highlight where cleaning is needed.
+
+Let's use the `dplyr` package to inspect our variables and run a basic summary:
+
+```{r}
+#| message: false
+#| warning: false
+
+# Load necessary libraries
+library(dplyr)
+
+# 1. Inspect the anatomy of the dataset (Rows, Columns, and Variable Types)
+glimpse(df_messy)
+
+# 2. Run numerical summaries to detect outliers and error codes
+summary(df_messy)
+
+# 3. Check categorical variables for inconsistencies
+table(df_messy$phyto_diversity, useNA = "ifany")
+```
+
+#### 5.3. What the Diagnostic Step Revealed
+
+If you look closely at the output from the code above, the diagnostic step immediately reveals several critical issues that would break our future statistical analysis:
+
+**Wrong Data Types:** `silicate_umol_l` was imported as a character (text) vector instead of numeric, because it contains commas and units. No statistical test can be run on it in this state.
+
+**Sensor Errors (Outliers):** The summary for `sensor_temp_c` shows a minimum value of -999.0. This is a classic numerical error code, not a freezing estuary. Similarly, `sensor_ph` has a maximum of 14.8 — an impossible physiological value. Left in place, a single value like this dominates every mean and every model.
+
+**Categorical Chaos:** The frequency table for `phyto_diversity` reveals duplicated, miscapitalized categories (e.g., high, HIGH, High, lw) that R interprets as completely different groups.
+
+**Duplication:** We now have eight rows for seven sampling events. Counting the same observation twice is pseudo-replication, and it makes our results look more certain than they are.
+
+#### 5.4. Visualizing the Chaos (Interactive EDA)
+
+Summary tables are great, but nothing beats visual inspection. When sensors fail, they often record extreme values that compress all the valid data into a tiny unreadable line on a standard chart.
+
+To spot these errors easily, we will use `ggplot2` combined with the `plotly` package to create an interactive plot. Run the code below and try hovering your mouse over the points:
+
+```{r}
+#| message: false
+#| warning: false
+
+# Load visualization libraries 
+# install.packages(c("ggplot2", "plotly"))
+library(dplyr)
+library(ggplot2)
+library(plotly)
+
+# A shared palette and theme, reused by every figure in this tutorial.
+# Defining them once keeps the figures visually consistent.
+aura_blue   <- "#0072B2"
+aura_orange <- "#D55E00"
+
+theme_aura <- theme_minimal(base_size = 12) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 14),
+    plot.subtitle    = element_text(colour = "grey35", margin = margin(b = 10)),
+    plot.caption     = element_text(colour = "grey55", size = 9),
+    panel.grid.minor = element_blank(),
+    axis.text.x      = element_text(size = 9, colour = "grey30")
+  )
+
+# 1. Build the static plot using ggplot2
+temp_plot <- ggplot(df_messy, aes(x = "Aura Estuary", y = sensor_temp_c)) +
+  # We add na.rm = TRUE to handle the missing value (NA) silently
+  geom_boxplot(fill = aura_blue, alpha = 0.5, outlier.colour = aura_orange,
+               outlier.size = 3, width = 0.4, na.rm = TRUE) +
+  geom_jitter(data = filter(df_messy, sensor_temp_c > -50), width = 0.08,
+              colour = aura_blue, alpha = 0.8, size = 2.5, na.rm = TRUE) +
+  labs(
+    title    = "Exploratory Data Analysis: Temperature Sensor",
+    subtitle = "The orange point is the -999.0 error code, not a freezing estuary",
+    y = "Temperature (°C)",
+    x = NULL
+  ) +
+  theme_aura
+
+# 2. Convert to an interactive html widget
+ggplotly(temp_plot)
+```
+
+> **Don't panic if you see a warning!** 
+> If you run the ggplot code without `na.rm = TRUE`, R will throw a warning: *"Removed 1 row containing non-finite outside the scale range"*. 
+> This is actually a good thing! R is politely informing you that one of our sensor readings was missing (`NA`), so it couldn't plot it. Warnings are just the software communicating with you; they are not errors that break your code. By adding `na.rm = TRUE` inside our geometry layers, we acknowledge the missing data and tell R to suppress the warning.
+
+### 6. Data Wrangling: Taming the Chaos
+
+Now that we know exactly where our data is broken, it is time to fix it. We will use the `tidyverse` ecosystem — specifically `dplyr` for data manipulation, `stringr` for text processing, and `lubridate` for date/time conversion.
+
+Data cleaning is rarely a single step; it is a pipeline. We will string our commands together using the pipe operator (`%>%` or `|>`), passing our messy data frame through a series of filters and transformations until it is ready for analysis.
+
+#### 6.1. The Cleaning Pipeline
+
+Here is the complete code to clean our dataset. Read through the comments to understand what each step does:
+
+```{r}
+#| message: false
+#| warning: false
+
+# Load the necessary packages
+library(dplyr)
+library(stringr)
+library(lubridate)
+
+df_clean <- df_messy %>%
+  # 1. REMOVE DUPLICATES
+  # Sometimes rows get copy-pasted by mistake. This removes exact duplicate rows.
+  distinct() %>%
+  
+  mutate(
+    # 2. FIX TIMESTAMPS
+    # lubridate::parse_date_time can read multiple formats at once and standardizes them.
+    date_time_clean = parse_date_time(date_time, 
+                                      orders = c("Ymd HMS", "Ymd HM", "dmY HM")),
+    
+    # 3. HANDLE SENSOR ERRORS
+    # Convert the -999 error code to a true NA (Not Available)
+    sensor_temp_c = na_if(sensor_temp_c, -999),
+    
+    # Use case_when to filter out ecologically impossible values (like pH > 14)
+    sensor_ph = case_when(
+      sensor_ph > 14 ~ NA_real_,
+      TRUE ~ sensor_ph # Keep everything else as it is
+    ),
+    
+    # 4. CLEAN NUTRIENT DATA (Text to Numeric)
+    # The silicate column is a mess. We need to:
+    # a) Replace the Brazilian comma (45,2) with a decimal point (45.2)
+    # b) Extract only the numbers and decimals, ignoring text like "umol/L" or "N/A"
+    # c) Convert the final clean string into a numeric value
+    silicate_clean = silicate_umol_l %>%
+      str_replace(",", ".") %>% 
+      str_extract("[0-9.]+") %>% 
+      as.numeric(),
+    
+    # 5. STANDARDIZE BIOLOGICAL CATEGORIES
+    # Microscopy and functional group identification often rely on manual data entry,
+    # making them highly prone to typos and inconsistent capitalization.
+    
+    # First, make everything Title Case (e.g., "high" and "HIGH" both become "High")
+    phyto_diversity = str_to_title(phyto_diversity),
+    
+    # Second, fix the specific typo "Lw" to "Low"
+    phyto_diversity = case_when(
+      phyto_diversity == "Lw" ~ "Low",
+      TRUE ~ phyto_diversity
+    )
+  ) %>%
+  
+  # 6. SELECT FINAL COLUMNS
+  # Let's keep only our cleaned columns and drop the old messy ones
+  select(
+    sample_id, 
+    date_time = date_time_clean, 
+    sensor_temp_c, 
+    sensor_ph, 
+    nitrate_mg_l, 
+    silicate_umol_l = silicate_clean, 
+    phyto_diversity
+  )
+
+# Let's look at our beautiful, analysis-ready dataset!
+head(df_clean)
+```
+
+Never assume a cleaning step worked. Two quick checks confirm it:
+
+```{r}
+# Did every timestamp parse? Any NA here means a format we didn't anticipate.
+sum(is.na(df_clean$date_time))
+
+# Do we now have exactly three biological categories?
+table(df_clean$phyto_diversity, useNA = "ifany")
+```
+
+### 6.2. Why this matters for our Hypothesis
+
+Look at the output above. We have successfully rescued our data!
+
+The timestamps are uniform, allowing us to accurately plot the timeline of the Aura Estuary.
+
+The fake -999 temperature and the 14.8 pH are now NA. Our statistical models will safely ignore these gaps rather than being completely distorted by them.
+
+The nutrient concentrations are pure numbers, meaning we can finally calculate correlations.
+
+Our categorical variable for phytoplankton now has strict, consistent groupings (High, Medium, Low), which is essential if we want to run statistical tests, or build accurate boxplots to test our eutrophication hypothesis. And note something we will need shortly: those three groups are not just labels, they have a natural order. Low comes before Medium, which comes before High. That ordering is real ecological information, and Section 8 is where we finally use it.
+
+### 7. Testing the Hypothesis: Visualizing Clean Data
+
+Now that our data is clean, standardized, and free of sensor artifacts, we can finally address our research question and test our *a priori* hypothesis: **Do short-term increases in nitrate availability result in a decrease in phytoplankton diversity?**
+
+Because our dataset is structured as a time series, a multi-panel plot is ideal to see how biological categories respond temporally to chemical pulses. First we will have a close look at nutrient pulses over time:
+
+```{r}
+#| message: false
+#| warning: false
+#| fig-width: 8
+#| fig-height: 5.5
+
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+
+# We reshape the data into long format so that ggplot can draw
+# both nutrients on stacked panels sharing the same timeline
+df_long <- df_clean %>%
+  select(date_time, nitrate_mg_l, silicate_umol_l) %>%
+  pivot_longer(
+    cols = c(nitrate_mg_l, silicate_umol_l),
+    names_to = "variable",
+    values_to = "value"
+  ) %>%
+  mutate(variable = case_when(
+    variable == "nitrate_mg_l"    ~ "Nitrate (mg/L)",
+    variable == "silicate_umol_l" ~ "Silicate (umol/L)"
+  ))
+
+# Panels with independent scales, since the two nutrients use different units
+ggplot(df_long, aes(x = date_time, y = value, colour = variable)) +
+  # The line is drawn first so that the points sit on top of it
+  geom_line(linewidth = 0.7, alpha = 0.7, na.rm = TRUE) +
+  geom_point(
+    shape = 21, size = 3.2, stroke = 1,
+    aes(fill = variable), colour = "white", na.rm = TRUE
+  ) +
+  facet_wrap(~ variable, ncol = 1, scales = "free_y") +
+  scale_colour_manual(values = c("Nitrate (mg/L)" = aura_blue,
+                                 "Silicate (umol/L)" = aura_orange)) +
+  scale_fill_manual(values = c("Nitrate (mg/L)" = aura_blue,
+                               "Silicate (umol/L)" = aura_orange)) +
+  # One tick per sampling event, matching our 12-hour design
+  scale_x_datetime(date_breaks = "12 hours", date_labels = "%d %b\n%H:%M") +
+  scale_y_continuous(expand = expansion(mult = 0.15)) +
+  labs(
+    title    = "Nutrient Dynamics at Aura Estuary",
+    subtitle = "Cleaned 12-hour series; gaps mark observations lost to sensor failure",
+    x        = "Sampling time (March 2026)",
+    y        = NULL,
+    caption  = "Simulated data for tutorial purposes."
+  ) +
+  theme_aura +
+  theme(
+    legend.position    = "none", # the facet title already identifies each panel
+    strip.text         = element_text(face = "bold", size = 11, hjust = 0),
+    panel.spacing      = unit(1.2, "lines"),
+    panel.grid.major.x = element_line(linewidth = 0.3, colour = "grey90")
+  )
+```
+
+After visualizing the nutrient pulse over time, we can now look at the diversity response over the same period:
+
+```{r}
+#| message: false
+#| warning: false
+#| fig-width: 8
+#| fig-height: 4.5
+
+df_clean %>%
+  filter(!is.na(phyto_diversity)) %>%
+  mutate(phyto_diversity = factor(phyto_diversity,
+                                  levels = c("Low", "Medium", "High"))) %>%
+  ggplot(aes(x = date_time, y = phyto_diversity)) +
+  # The trajectory makes the temporal sequence readable; group = 1 tells ggplot
+  # to connect all observations, since y is a discrete variable
+  geom_line(aes(group = 1), colour = "grey70", linewidth = 0.6,
+            linetype = "dashed", na.rm = TRUE) +
+  # Nitrate is encoded twice, as size and as fill, so the gradient is legible
+  # even when two bubbles are close in diameter
+  geom_point(aes(size = nitrate_mg_l, fill = nitrate_mg_l),
+             shape = 21, colour = "white", stroke = 1.2, na.rm = TRUE) +
+  scale_size_continuous(range = c(4, 13)) +
+  scale_fill_gradient(low = "#BDD7E7", high = "#08519C") +
+  scale_x_datetime(date_breaks = "12 hours", date_labels = "%d %b\n%H:%M") +
+  # A little room so the largest bubbles are not clipped by the panel edges
+  scale_y_discrete(expand = expansion(add = 0.6)) +
+  guides(
+    fill = guide_legend(reverse = TRUE),   # one merged legend instead of two
+    size = guide_legend(reverse = TRUE)
+  ) +
+  labs(
+    title    = "Phytoplankton Diversity Response",
+    subtitle = "Bubble size and colour both represent nitrate concentration",
+    x        = "Sampling time (March 2026)",
+    y        = "Diversity Class",
+    size     = "Nitrate (mg/L)",
+    fill     = "Nitrate (mg/L)",
+    caption  = "Simulated data for tutorial purposes."
+  ) +
+  theme_aura +
+  theme(
+    axis.text.y        = element_text(face = "bold", size = 11),
+    panel.grid.major.x = element_line(linewidth = 0.3, colour = "grey92"),
+    panel.grid.major.y = element_line(linewidth = 0.5, colour = "grey88"),
+    legend.position    = "right",
+    legend.title       = element_text(size = 10)
+  )
+```
+
+The largest points sit at the bottom of the panel: the samples richest in nitrate are the ones scored as low diversity. That is exactly the pattern we predicted in Section 3.
+
+But be honest with yourself before celebrating. There are only six usable points here, and human eyes are extraordinarily good at finding patterns, including in pure noise. Seeing a trend is not the same as demonstrating one. That gap between *seeing* and *showing* is precisely what statistics exists to close.
+
+### 8. Choosing Your Statistical Test
+
+This is the section our title promised, and it is worth pausing before the code.
+
+A statistical test does one thing only: it answers the question *"if there were really no relationship in nature, how surprising would my data be?"* It is not a machine that decides whether you are right. It is a surprise meter.
+
+An everyday example makes this concrete. Suppose a friend claims they can predict a coin flip, and they call it correctly six times out of six. Either they got lucky, or something real is going on. So we ask how often pure luck alone would do that well. Each call has a one-in-two chance, so six correct calls in a row happen about 1.6% of the time. That number, the probability of a result *at least as extreme as yours* under the "nothing is happening" story, is the **p-value**. It is small, so luck becomes an uncomfortable explanation. Had they called four out of six, luck would produce a result that good or better about 34% of the time, and you would shrug.
+
+In our study, the "nothing is happening" story is that nutrients and diversity are unrelated. Our six diversity classes falling as nitrate rises are the six coin calls. The test will tell us how surprising that arrangement is.
+
+What the test will *not* tell us is why. The ecology, competitive exclusion by opportunistic taxa, comes from Section 3. R only measures the association.
+
+#### A note before we start
+
+Over the next few pages you will meet the names of a dozen statistical tests. **You are not expected to know them, and you will not need to learn them here.** They work like street addresses: what matters is being able to find the right one when you need it, not to have memorized the map.
+
+That is the whole point of this section. Instead of studying tests one by one and hoping to recognize your situation in one of them, we work backwards, from your study to the test.
+
+This is also where the distinction from Section 5.2 returns, one layer later. Diagnostic exploration is not only allowed here, it is required: the type of your variables, the shape of your distributions, the number of complete observations, the dependence created by your design — all of this legitimately narrows the set of valid methods, and you cannot know it without inspecting your data. What must **not** guide the choice is the *answer*. The moment you run a test, dislike the p-value, and reach for another one, you have crossed from structure into results. **Choose your test from the structure of your data and your design; never from the answer it gives you.**
+
+In practice, this comes down to four questions:
+
+1.  **What kind of response variable do I have?** (Section 8.1)
+2.  **What kind of predictor do I have?** (Section 8.2)
+3.  **Are my observations independent?** (Section 8.3)
+4.  **How many observations do I actually have?** (Section 8.4)
+
+The first three are settled by your sampling design, and could have been answered before you collected a single drop of water. The fourth depends on what survived cleaning, which is why we ask it only now. None of the four requires any statistical background to answer. The first two will name a test; the last two will tell you how much to trust it.
+
+Notice what is absent from the list: any mention of the relationship between nitrate and diversity. That is the result, and results are not admissible evidence when choosing a method.
+
+#### 8.1. What kind of response variable do I have?
+
+The response variable is the outcome, the thing you believe is being affected. In our hypothesis, nitrate reduces diversity, so `phyto_diversity` is the response. (The other variable, nitrate, is the predictor, and it gets its own question in 8.2.)
+
+Statistics does not care what your variable means ecologically; it cares what kind of number-like thing it is. In aquatic sciences you will meet four kinds:
+
+| Type | What it is | Examples | In our dataset |
+|---|---|---|---|
+| **Continuous** | A scale where differences are meaningful and equal | Temperature, pH, nitrate, a Shannon index | `sensor_temp_c`, `nitrate_mg_l` |
+| **Ordinal** | Ordered categories, with unknown gaps between them | Diversity as Low/Medium/High; abundance on a visual 1–5 scale | `phyto_diversity` |
+| **Nominal** | Categories with no order at all | Substrate type, species identity, station name | — |
+| **Count** | Whole, non-negative numbers | Cells per mL, taxa per net tow | — |
+
+You have in fact already done part of this classification: the `glimpse()` output back in Section 5.2 told you which columns R considers numeric and which it considers character. What that output could not tell you is the difference between the middle two rows of this table, because R stores "Low" and "sandy" in exactly the same way. That distinction is ecological knowledge, and it has to come from you.
+
+To tell continuous from ordinal, ask whether the difference between two values means something concrete. Twenty-four and twenty-six degrees differ by exactly two degrees, and so do twenty-six and twenty-eight. But Low and Medium differ by one step of entirely unknown size; perhaps Low means three taxa, Medium five, and High forty. The order is real, the spacing is not.
+
+Our diversity variable is therefore **ordinal**, and that single fact does most of the work for us, because it rules out whole families of methods at once.
+
+*   Some tests are built on **averages**: the t-test, ANOVA, Pearson correlation and linear regression all work by computing means. A mean requires equal spacing, so it cannot be applied here. The average of "Low" and "High" is not defensibly "Medium".
+*   Some tests are built on **counting cases in boxes**: chi-square would run on our three classes, but it treats them as unrelated labels, throwing away the ordering. That ordering is the best information we have, so discarding it would be careless.
+*   Some tests are built on **ranks**, using nothing but the ordering of values. Which is precisely what we possess.
+
+If you have never met any of those names before, nothing is lost: the point is only that the type of your response variable narrows the field before you have looked at a single number. The third family is where our study lands, and Section 8.2 will give it a name.
+
+Because the ordering is information, we must tell R about it explicitly. Left alone, R would sort our classes alphabetically and put High first:
+
+```{r}
+# Encode the ordering explicitly. This is a modelling decision, not cleaning.
+df_clean <- df_clean %>%
+  mutate(
+    diversity_ord = factor(phyto_diversity,
+                           levels = c("Low", "Medium", "High"),
+                           ordered = TRUE),
+    diversity_rank = as.integer(diversity_ord) # Low = 1, Medium = 2, High = 3
+  )
+
+df_clean %>% select(date_time, nitrate_mg_l, diversity_ord, diversity_rank)
+```
+
+> **In your own work:** the moment your field sheet says "score abundance as rare / common / abundant", you have created an ordinal variable and committed yourself to rank-based statistics. If you would rather have the flexibility of continuous methods, that decision has to be made on the field sheet, not at the computer.
+
+#### 8.2. What kind of predictor do I have?
+
+The predictor is the thing doing the explaining. Here it is `nitrate_mg_l`, measured in mg/L: 0.12 and 0.18 differ by exactly 0.06 mg/L, and that difference means the same thing anywhere on the scale. It is **continuous**.
+
+Combining your two answers gives the test. The table below covers most of what you will need in aquatic sciences. It is meant to be consulted, not memorized, and right now only one of its cells concerns us:
+
+| Response ↓ / Predictor → | Continuous predictor | Categorical predictor |
+|---|---|---|
+| **Continuous** | Pearson correlation, linear regression | t-test (2 groups), ANOVA (3+) |
+| **Ordinal** | **Spearman correlation**, ordinal regression | Mann-Whitney (2 groups), Kruskal-Wallis (3+) |
+| **Nominal / binary** | Logistic regression | Chi-square, Fisher's exact |
+| **Count** | Poisson or negative binomial GLM | Poisson GLM with a factor |
+
+Ordinal response plus continuous predictor points to **Spearman's rank correlation**. What Spearman does is simple: it forgets your original values and replaces them with their positions in line, smallest first, then asks whether the two lines run in the same order or in opposite orders. Ranks are exactly what an ordinal variable contains, so nothing is being invented.
+
+The same table answers questions that feel completely unrelated. Does chlorophyll differ between three estuaries? Continuous response, categorical predictor: ANOVA. Does the number of taxa depend on salinity? Count response, continuous predictor: Poisson GLM. The vocabulary changes, the table does not.
+
+#### 8.3. Are my observations independent?
+
+This is the assumption that quietly invalidates more student analyses than all the others combined. Independence means that knowing one measurement tells you nothing about the next, and every test in the table above assumes it.
+
+Imagine measuring the average height in your city by sampling thirty people who happen to be ten sets of triplets. You wrote down thirty numbers, so it feels like thirty measurements. It is not: once you know one triplet's height you can guess the other two, so you hold closer to ten independent pieces of information. Tell your software you have thirty and it will return confidence intervals that are far too narrow and p-values that are far too small. You will be confidently wrong.
+
+Our situation is the same in disguise, and Section 5.1 already warned us. These are repeated measurements at one site, twelve hours apart. Water sampled at 08:00 is largely the same body of water sampled at 20:00, under the same tide and weather, holding the same algal population. This is **temporal autocorrelation**. With a longer series you would inspect it directly:
+
+```{r}
+#| eval: false
+# With a real series (n around 30 or more), inspect the autocorrelation function:
+acf(df_clean$nitrate_mg_l, na.action = na.pass)
+```
+
+Non-independence also arrives as nested designs (three replicate bottles from the same station are not three independent samples of the estuary), as spatial proximity, and as before/after measurements on the same experimental unit. None of these can be fixed by cleaning; independence is a property of how you sampled, decided in the field. Your options at the computer are to model the dependence explicitly, using mixed models or generalized least squares with an autocorrelation structure, or to state the limitation openly and interpret cautiously. With six observations, the second is the honest choice.
+
+#### 8.4. How many observations do I actually have?
+
+Not how many rows you collected, but how many complete pairs survive cleaning:
+
+```{r}
+df_test <- df_clean %>%
+  filter(!is.na(nitrate_mg_l), !is.na(diversity_rank))
+
+nrow(df_test)
+```
+
+Six. We started with eight rows; one was a duplicate and one lost its diversity score. Six is the number your statistics actually run on, and the number that belongs in your methods section.
+
+Small samples have low **power**, meaning a low probability of detecting an effect that is genuinely there. Think of power as the resolution of a microscope: a low-power lens failing to reveal a structure is not evidence that the structure is absent. This is why "p greater than 0.05" from a small study means *my study was too small to tell*, not *there is no effect*.
+
+Sample size also settles the parametric question. Parametric tests such as the t-test and Pearson correlation assume your data follow a particular shape, usually the normal distribution, and are more powerful when that assumption holds. Non-parametric tests such as Spearman work on ranks and assume far less. With six observations you cannot meaningfully check normality at all: a Shapiro-Wilk test on n = 6 will almost never reject, not because the data are normal but because it has no power to say otherwise. Passing it would be false comfort. The rank-based route was already safer, quite apart from our ordinal response requiring it.
+
+> **The rule that protects you:** assumptions are checked *after* the test is chosen, to judge whether it was valid. They are never checked *before*, to decide which test to run. Choosing whichever test "works" on your data is p-hacking even when it feels like diligence. All four questions above concern the structure of your study, not the relationship you are testing, so none of them can be steered by a result you have already seen.
+
+Written out, our decision is: an ordinal response and a continuous predictor call for a rank-based correlation; the observations are a time series, so independence is violated and must be reported; six complete pairs mean low power and no meaningful assumption checking; and the direction of the effect was predicted in Section 3, which entitles us to a one-sided test. **We will run Spearman's rank correlation between nitrate concentration and diversity rank, one-sided.**
+
+### 9. Running the Test
+
+```{r}
+spearman_result <- cor.test(
+  x = df_test$nitrate_mg_l,
+  y = df_test$diversity_rank,
+  method = "spearman",
+  alternative = "less", # our a priori prediction: nutrients up, diversity down
+  exact = FALSE         # ties are present, so use the asymptotic approximation
+)
+
+spearman_result
+```
+
+Every argument came from Section 8, and none from looking at the data. The method follows from the variable types, the one-sided alternative from the hypothesis we wrote before sampling, and `exact = FALSE` from the repeated diversity classes, which create tied ranks.
+
+Now read the output slowly. **Rho** is the effect size, and answers *how strong*. It runs from -1, a perfect monotonic decrease, through 0, no monotonic relationship, to +1, a perfect increase. Ours is roughly **-0.93**: as nitrate rises, diversity class falls, almost without exception, and the sign is negative, the direction we predicted. Had it come out at +0.93 we would have found a strong effect opposite to our hypothesis, which is a real and reportable result rather than a failure.
+
+The **p-value** is the surprise meter from the coin example: the probability of a rank pattern at least this lopsided if nutrients and diversity were truly unrelated. It is small here, so coincidence becomes an awkward explanation.
+
+R may also print a warning that it cannot compute an exact p-value with ties. This is expected and harmless, since three samples share the class "High". As Section 5.4 put it, the software is talking, not stopping.
+
+Keep both numbers together. Rho tells you how strong the relationship is; the p-value tells you how confident you can be that it is not luck. A large rho with a large p-value means a possibly strong effect that your sample was too small to confirm. A small rho with a small p-value, common in very large datasets, means a real but perhaps trivial effect. Neither number substitutes for the other.
+
+#### 9.1. The same question, framed as groups
+
+Had we framed the hypothesis as "nitrate differs among diversity classes", the table in Section 8.2 would have sent us along the categorical-predictor branch instead, to a Kruskal-Wallis test:
+
+```{r}
+kruskal.test(nitrate_mg_l ~ droplevels(diversity_ord), data = df_test)
+```
+
+This is a different question about the same data, and here it has less power, since one of our groups contains a single observation. Running both and reporting whichever gave the smaller p-value would be exactly the misconduct Section 3 warned about. We report Spearman, because Spearman is what we pre-specified.
+
+#### 9.2. What would change with a continuous response
+
+Had you computed a Shannon index instead of scoring classes, your response would be continuous, and the first row of our table would apply: linear regression, or better, a model that also accounts for the temporal dependence, such as `nlme::gls` with a `corAR1` correlation structure. This is the strongest practical argument for computing a diversity index rather than scoring categories: it opens up more informative models. Decisions made in the field determine the statistics available in the office.
+
+### 10. Reporting What You Found
+
+A result is not a p-value. Here is how our finding should actually be written, with each move numbered so we can take it apart afterwards:
+
+> ➀ We tested the *a priori* prediction that short-term nutrient increases reduce phytoplankton diversity at the Aura Estuary. ➁ Using Spearman's rank correlation on six complete 12-hour observations, ➂ nitrate concentration was strongly negatively associated with phytoplankton diversity class (rho = -0.93, one-sided p < 0.05). ➃ However, the effective sample size is small and the observations are temporally autocorrelated, so the p-value should be interpreted as indicative rather than confirmatory. ➄ The result is consistent with the competitive exclusion mechanism hypothesized *a priori* ➅ and motivates a longer monitoring series using a continuous diversity index.
+
+#### 10.1. The anatomy of that paragraph
+
+| # | The move | Why it is there | Where it came from |
+|---|---|---|---|
+| ➀ | **The prediction, restated** | Signals a confirmatory study and shows the hypothesis preceded the data. A reader can check it against your pre-registration or your methods. | Section 3.2 |
+| ➁ | **The method and the real sample size** | Names the test *and* the number it actually ran on. Six, not the eight rows collected. | Sections 8.2, 8.4 |
+| ➂ | **Effect size first, p-value second** | Rho tells the reader how strong the pattern is; p only tells them how surprised to be. Reversing this order lets a trivial effect masquerade as an important one. | Section 9 |
+| ➃ | **The limitation, volunteered** | Stated by the authors rather than left for a reviewer to find. Autocorrelation was known from the design, not discovered afterwards. | Sections 5.1, 8.3 |
+| ➄ | **Consistency, not causation** | "Consistent with" is doing careful work here. Nutrients and diversity co-varied, but in an observational series a hidden driver such as light, tide or mixing could plausibly produce both. | Section 3.2 |
+| ➅ | **What comes next** | A result that names its own successor is more useful than one that closes the subject. Here it points at the fix for our weakest link: a continuous index instead of classes. | Section 9.2 |
+
+Notice that every row of that table points backwards to a decision made earlier in this tutorial. That is what a defensible result looks like: not a number produced at the end, but a chain in which each link can be inspected.
+
+#### 10.2. The same finding, badly reported
+
+For contrast, here is the version that circulates most often in student work:
+
+> Nitrate had a significant effect on phytoplankton diversity (p < 0.05), showing that eutrophication reduces diversity in estuaries.
+
+Everything in that sentence is either unsupported or missing. There is no effect size, so the reader cannot tell whether the association is strong or negligible. There is no sample size, so they cannot judge how much weight it carries. **"Effect"** claims causation that an observational series cannot deliver. Generalizing to **"estuaries"** extends a single fictitious site to an entire class of systems. And the pre-specified nature of the test, the one thing that makes the p-value mean what it appears to mean, goes unmentioned. The finding may well be the same. The claim being made is not.
+
+Had the result been non-significant, you would report it in exactly the same way. A high p-value with six observations means your design could not detect an effect, not that no effect exists. The most common failure in student work is quietly abandoning a pre-registered test that came out null and going hunting for a significant one instead. Resist that. A well-reported null result from a clean, reproducible pipeline is a genuine scientific contribution; a significant result found by testing everything is not.
+
+And that is the full cycle: a question with a defined anatomy, a hypothesis written before the data, a messy dataset diagnosed and repaired, a test chosen from the design rather than the results, and a finding reported with its limits attached.
